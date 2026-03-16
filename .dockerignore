@@ -1,0 +1,13 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.git/
+.pytest_cache/
+smoke_sanitized_results.zip
+Navicon_Case6.7z
+HISTORY/
+nginx/certs/*.key
+nginx/certs/*.crt
