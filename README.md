@@ -1,145 +1,61 @@
-# Navicon Case 6 - Sanitizer 3.0
+# Navicon Sanitizer 3.0
 
-Прототип для кейса 6: локальное обезличивание документов перед отправкой за периметр.
+Локальный сервис обезличивания документов перед отправкой во внешний контур.
 
-## Что реализовано
+Решение анализирует документ, показывает найденные риски, дает человеку подтвердить результат и только после этого формирует безопасную версию файла.
 
-- Двухшаговый UX: `Анализ -> Подтверждение -> Вычеркивание`.
-- Разделенная архитектура:
-  - `backend` (FastAPI) - анализ, OCR, вычеркивание, генерация архива.
-  - `frontend` (Streamlit) - интерфейс загрузки, валидации и скачивания.
-- Поддержка форматов: `PDF`, `DOCX`, `TXT`, `MD`, `PNG/JPG/JPEG`, `ZIP`.
-- Отчет по найденным сущностям с указанием страницы и метода (`TextLayer`/`OCR`).
-- Вердикт ИБ на шаге анализа: `Можно/Нельзя передавать`.
-- Выгрузка результатов: исходный очищенный формат + `Markdown` + `Word` + `report.json` + `report.md`.
-- Локальная работа (без облака по умолчанию).
-- Автовыбор движка NER:
-  - русский текст -> `Natasha`
-  - англоязычный -> `Qwen` (если настроен) или `regex`
+## Что умеет
 
-## Быстрый запуск (Windows)
+- Работает в два шага: `анализ -> подтверждение -> вычеркивание`
+- Поддерживает `PDF`, `DOCX`, `TXT`, `MD`, `PNG`, `JPG`, `JPEG`, `ZIP`
+- Находит чувствительные данные в текстовых документах и сканах
+- Показывает подсветку фрагментов и таблицу для ручной проверки
+- Позволяет вручную добавить фразы для вычеркивания
+- Выгружает очищенные файлы, `Markdown`, `Word` и отчет по изменениям
+- По умолчанию работает локально, без внешних облачных сервисов
+
+## Как это устроено
+
+- `frontend` на Streamlit: загрузка файлов, просмотр результатов, подтверждение
+- `backend` на FastAPI: анализ, OCR, редактирование и сборка итогового архива
+- Движки: `Natasha`, `regex`, `Qwen` через OpenAI-совместимый endpoint при наличии настройки
+
+## Быстрый старт
+
+### Windows
 
 ```bat
 run.bat
 ```
 
-Скрипт запускает `run_local.py`, который:
-
-- проверяет/поднимает backend и ждет `/health`,
-- по умолчанию поднимает **свежий** backend (чтобы не цепляться к старому процессу с предыдущей версией кода),
-- автоматически выбирает свободный порт для frontend (если `8501` занят),
-- передает корректный `BACKEND_URL` во frontend,
-- открывает браузер автоматически.
-
-Если backend не поднялся, смотри лог: `backend.log`.
-
-Опционально можно переиспользовать уже запущенный backend:
-
-```bat
-.\venv\Scripts\python.exe -u run_local.py --reuse-existing-backend
-```
-
-## Docker Compose
-
-Сначала создай `.env` в корне проекта на основе `.env.example`.
-Для Qwen backend-контейнер читает `QWEN_API_BASE`, `QWEN_MODEL`, `QWEN_API_KEY` именно из `.env`.
+### Docker Compose
 
 ```bash
 docker compose up --build
 ```
 
-Сервисы:
+Подробные инструкции по локальному запуску, Docker, `.env`, Qwen, Nginx и API вынесены в [DEPLOY.md](DEPLOY.md).
 
-- Frontend: `http://localhost:8501`
-- Backend API: `http://localhost:8000`
-- Nginx HTTPS: `https://localhost` (если сгенерированы сертификаты)
+## Результат обработки
 
-## Nginx + Self-Signed SSL (Ubuntu VM)
+После подтверждения пользователь получает ZIP-архив, в который могут входить:
 
-1. Сгенерировать сертификат:
+- очищенный файл в исходном формате
+- `Markdown`-версия
+- `Word (.docx)`-версия
+- `report.json`
+- `report.md`
 
-```bash
-chmod +x scripts/generate-self-signed.sh
-./scripts/generate-self-signed.sh <DOMAIN_OR_IP> <IP_SAN>
-```
+## Структура репозитория
 
-Пример:
+- [app.py](app.py) — интерфейс Streamlit
+- [backend/app.py](backend/app.py) — FastAPI API
+- [backend/core.py](backend/core.py) — ядро анализа и вычеркивания
+- [docker-compose.yml](docker-compose.yml) — запуск сервисов в контейнерах
+- [DEPLOY.md](DEPLOY.md) — технический запуск и деплой
+- [docs/TEST_PROTOCOL.md](docs/TEST_PROTOCOL.md) — краткий протокол тестирования
 
-```bash
-./scripts/generate-self-signed.sh 10.10.10.20 10.10.10.20
-```
+## Конфигурация
 
-2. Запустить контейнеры:
-
-```bash
-docker compose up -d --build
-```
-
-3. Открыть:
-
-```text
-https://<DOMAIN_OR_IP>
-```
-
-### Быстрый деплой одной командой на Ubuntu
-
-```bash
-chmod +x scripts/deploy-ubuntu.sh
-./scripts/deploy-ubuntu.sh
-```
-
-Скрипт сам:
-
-- определит IP VM,
-- выпустит self-signed сертификат в `nginx/certs/`,
-- поднимет весь стек через `docker compose`.
-
-## Переменные окружения
-
-- `BACKEND_URL` - URL backend для frontend (по умолчанию `http://localhost:8000`)
-- `OCR_GPU` - `1/true` для OCR на GPU, иначе CPU
-- `QWEN_API_BASE` - base URL OpenAI-совместимого endpoint локальной LLM
-- `QWEN_MODEL` - имя модели для Qwen
-- `QWEN_API_KEY` - токен (если требуется)
-
-Для Docker Compose backend получает эти переменные из `.env` через `env_file`.
-
-## API
-
-### `POST /analyze`
-
-`multipart/form-data`:
-
-- `files`: один или несколько файлов
-- `categories_json`: JSON-массив категорий (`["PER","ORG", ...]`)
-- `custom_words`: кастомный словарь (по строкам)
-- `use_ocr`: `true/false`
-- `engine`: `auto|natasha|qwen|regex`
-
-### `POST /redact/{analysis_id}`
-
-`application/json`:
-
-```json
-{
-  "selected_hit_ids_by_file": {
-    "f1": ["h1", "h2"]
-  },
-  "redaction_style": "black",
-  "include_original": true,
-  "include_markdown": true,
-  "include_docx": true
-}
-```
-
-Ответ: zip-архив с результатами.
-
-## Материалы для защиты
-
-- Пошаговый сценарий демо на 15 минут: [docs/DEMO_SCENARIO_15MIN.md](docs/DEMO_SCENARIO_15MIN.md)
-- Короткий протокол тестирования и метрик: [docs/TEST_PROTOCOL.md](docs/TEST_PROTOCOL.md)
-
-## Secrets And Local Config
-
-- Шаблон переменных окружения: `.env.example`
-- Локальные секреты и сертификаты исключены из репозитория через `.gitignore`
+- шаблон переменных окружения: [.env.example](.env.example)
+- локальные секреты, сертификаты, тестовые материалы и служебные файлы исключены через [.gitignore](.gitignore)

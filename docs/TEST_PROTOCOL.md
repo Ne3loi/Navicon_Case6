@@ -1,48 +1,44 @@
-# Test Protocol For Demo
+# Краткий протокол тестирования
 
-## Goal
+## Цель
 
-Show that the solution is not only functional, but also tested on a small realistic set of documents.
+Показать, что решение не только работает на демо-файлах, но и было проверено на небольшом наборе реалистичных документов.
 
-## Recommended Test Set
+## Рекомендуемый тестовый набор
 
-- 3 PDF files
-- 3 DOCX files
-- 3 image scans or screenshots
-- 1 ZIP archive with mixed formats
-- 1 English-language document for Qwen or fallback check
+- 3 PDF-файла
+- 3 DOCX-файла
+- 3 скана или изображения
+- 1 ZIP-архив со смешанными форматами
+- 1 англоязычный документ для проверки Qwen или fallback-режима
 
-## What To Measure
+## Что измерять
 
-1. Detection coverage
-- Count how many expected sensitive fragments were present in the source document.
-- Count how many of them were detected by the system.
-- Formula: `coverage = detected / expected`.
+1. Полнота обнаружения
+- Посчитать, сколько чувствительных фрагментов ожидалось в исходном документе.
+- Посчитать, сколько из них система действительно нашла.
+- Формула: `полнота = найдено / ожидалось`.
 
-2. False positives
-- Count how many safe fragments were marked by mistake.
-- Mention that the second review step allows the user to uncheck them before export.
+2. Ложные срабатывания
+- Посчитать, сколько безопасных фрагментов было отмечено ошибочно.
+- Указать, что второй шаг подтверждения позволяет снять такие фрагменты перед выгрузкой.
 
-3. Processing time
-- Measure time for:
-  - small file (1-2 pages),
-  - medium file (5-10 pages),
-  - image scan.
+3. Время обработки
+- Замерить время для:
+  - маленького файла (1-2 страницы),
+  - среднего файла (5-10 страниц),
+  - скана или изображения.
 
-## Minimal Table For Presentation
+## Минимальная таблица для отчета
 
-| File | Format | Expected sensitive fragments | Detected | Coverage | Time |
+| Файл | Формат | Ожидалось чувствительных фрагментов | Найдено | Полнота | Время |
 |---|---|---:|---:|---:|---:|
-| Contract-01 | PDF | 9 | 9 | 100% | 2.1 sec |
-| Memo-02 | DOCX | 7 | 7 | 100% | 0.8 sec |
-| Scan-03 | PNG | 8 | 7 | 87.5% | 3.4 sec |
+| Contract-01 | PDF | 9 | 9 | 100% | 2.1 сек |
+| Memo-02 | DOCX | 7 | 7 | 100% | 0.8 сек |
+| Scan-03 | PNG | 8 | 7 | 87.5% | 3.4 сек |
 
-## What To Say Out Loud
+## Ключевые выводы
 
-- We tested not only demo files, but a small mixed-format batch close to real user scenarios.
-- OCR cases are naturally noisier than text-layer documents, which is why we kept the human confirmation step.
-- The product is intentionally built around safe review before export, not blind automatic deletion.
-
-## Strong Closing Line
-
-This is not just a detector. It is a controlled release workflow for documents leaving the company perimeter.
+- Проверка велась не только на демо-файлах, но и на небольшом смешанном наборе документов, близком к реальным сценариям.
+- OCR-кейсы закономерно шумнее документов с текстовым слоем, поэтому в решении сохранен шаг ручного подтверждения.
+- Продукт сознательно построен как безопасный процесс проверки перед выгрузкой, а не как слепое автоматическое удаление.
