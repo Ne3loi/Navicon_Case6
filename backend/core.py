@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import io
 import json
+import math
 import os
 import re
 import zipfile
@@ -60,7 +61,7 @@ RE_MONEY = re.compile(
 )
 RE_ACCOUNT = re.compile(r"(?<!\d)(?:\d[\s\-]?){20}(?!\d)")
 RE_ORG = re.compile(
-    r"\b(?:ООО|ОАО|ПАО|АО|ЗАО|ИП)\s+[\"«]?[A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9\s\-]{1,80}?[\"»]?(?=$|[.,;:\n)])",
+    r"\b(?:ООО|ОАО|ПАО|АО|ЗАО|ИП)\s+[\"«]?[A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9 \t\-]{1,80}?[\"»]?(?=$|[.,;:\n)])",
     re.IGNORECASE,
 )
 
@@ -421,7 +422,25 @@ def find_spans(
         if not overlap:
             picked.append(span)
 
-    return sorted(picked, key=lambda item: item.start), engine_used
+    normalized_picked: List[Span] = []
+    for span in picked:
+        if span.method == "OCR" and span.label == "ORG" and "\n" in span.text:
+            trimmed = span.text.split("\n", 1)[0].rstrip(" ,;:")
+            if trimmed:
+                normalized_picked.append(
+                    Span(
+                        start=span.start,
+                        end=span.start + len(trimmed),
+                        label=span.label,
+                        text=text[span.start : span.start + len(trimmed)],
+                        page=span.page,
+                        method=span.method,
+                    )
+                )
+                continue
+        normalized_picked.append(span)
+
+    return sorted(normalized_picked, key=lambda item: item.start), engine_used
 
 
 def _bbox_to_xy(bbox: List[List[float]]) -> Tuple[float, float, float, float, float, float]:
@@ -477,7 +496,7 @@ def _ocr_lines_from_image(image: np.ndarray) -> List[Dict[str, object]]:
     for grouped in _group_tokens_by_lines(tokens, image.shape[0]):
         parts: List[str] = []
         position = 0
-        line_tokens = grouped["tokens"]
+        line_tokens = sorted(grouped["tokens"], key=lambda token: (float(token["x1"]), float(token["cx"])))
         for token in line_tokens:
             token["s"] = position
             parts.append(token["text"])
@@ -507,6 +526,53 @@ def _flatten_ocr_lines(lines: Sequence[Dict[str, object]]) -> Tuple[str, List[Di
         offset += len(line_text) + 1
 
     return "\n".join(full_text_parts), flat_tokens
+
+
+def _token_rects_for_hit(
+    flat_tokens: Sequence[Dict[str, object]],
+    start: int,
+    end: int,
+    x_scale: float = 1.0,
+    y_scale: float = 1.0,
+    pad: int = 4,
+) -> List[Tuple[float, float, float, float]]:
+    rects: List[Tuple[float, float, float, float]] = []
+
+    for token in flat_tokens:
+        token_start = int(token["gs"])
+        token_end = int(token["ge"])
+        if token_start >= end or token_end <= start:
+            continue
+
+        x1 = float(token["x1"]) * x_scale
+        y1 = float(token["y1"]) * y_scale
+        x2 = float(token["x2"]) * x_scale
+        y2 = float(token["y2"]) * y_scale
+
+        token_text = str(token.get("text", ""))
+        token_len = max(token_end - token_start, len(token_text), 1)
+        local_start = max(0, start - token_start)
+        local_end = min(token_len, end - token_start)
+        if local_end <= local_start:
+            continue
+
+        if local_start == 0 and local_end >= token_len:
+            rect_x1, rect_x2 = x1, x2
+        else:
+            width = max(1.0, x2 - x1)
+            char_width = width / float(token_len)
+            rect_x1 = x1 + (char_width * local_start)
+            rect_x2 = x1 + (char_width * local_end)
+
+            min_width = max(8.0 * x_scale, char_width * 2.0)
+            if rect_x2 - rect_x1 < min_width:
+                center = (rect_x1 + rect_x2) / 2.0
+                rect_x1 = center - (min_width / 2.0)
+                rect_x2 = center + (min_width / 2.0)
+
+        rects.append((rect_x1 - pad, y1 - pad, rect_x2 + pad, y2 + pad))
+
+    return rects
 
 
 def _extract_pdf_text(page: fitz.Page, use_ocr: bool) -> Tuple[str, str]:
@@ -1089,27 +1155,21 @@ def _redact_image(
     lines = _ocr_lines_from_image(image)
     _, flat_tokens = _flatten_ocr_lines(lines)
 
-    pad = 2
     for hit in selected_hits:
         start = int(hit.get("start", -1))
         end = int(hit.get("end", -1))
         if start < 0 or end <= start:
             continue
 
-        hit_tokens = [token for token in flat_tokens if int(token["gs"]) < end and int(token["ge"]) > start]
-        if not hit_tokens:
+        hit_rects = _token_rects_for_hit(flat_tokens, start, end, pad=4)
+        if not hit_rects:
             continue
 
-        for token in hit_tokens:
-            x1 = int(float(token["x1"]) - pad)
-            y1 = int(float(token["y1"]) - pad)
-            x2 = int(float(token["x2"]) + pad)
-            y2 = int(float(token["y2"]) + pad)
-
+        for x1, y1, x2, y2 in hit_rects:
             cv2.rectangle(
                 image,
-                (max(0, x1), max(0, y1)),
-                (min(image.shape[1], x2), min(image.shape[0], y2)),
+                (max(0, math.floor(x1)), max(0, math.floor(y1))),
+                (min(image.shape[1], math.ceil(x2)), min(image.shape[0], math.ceil(y2))),
                 (0, 0, 0),
                 -1,
             )
@@ -1171,17 +1231,12 @@ def _redact_pdf(
             if start < 0 or end <= start:
                 continue
 
-            hit_tokens = [token for token in flat_tokens if int(token["gs"]) < end and int(token["ge"]) > start]
-            if not hit_tokens:
+            hit_rects = _token_rects_for_hit(flat_tokens, start, end, x_scale=scale_x, y_scale=y_scale, pad=4)
+            if not hit_rects:
                 continue
 
-            for token in hit_tokens:
-                rect = fitz.Rect(
-                    float(token["x1"]) * scale_x,
-                    float(token["y1"]) * scale_y,
-                    float(token["x2"]) * scale_x,
-                    float(token["y2"]) * scale_y,
-                )
+            for x1, y1, x2, y2 in hit_rects:
+                rect = fitz.Rect(x1, y1, x2, y2)
                 page.add_redact_annot(rect, fill=(0, 0, 0))
 
         page.apply_redactions()
