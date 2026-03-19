@@ -84,6 +84,8 @@ chmod +x scripts/deploy-ubuntu.sh
 
 Для Docker Compose backend получает эти переменные из `.env` через `env_file`.
 
+Поля `QWEN_*` нужны только если используется внешний Qwen.
+
 Пример `.env`:
 
 ```env

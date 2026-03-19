@@ -34,7 +34,7 @@ run.bat
 docker compose up --build
 ```
 
-Подробные инструкции по локальному запуску, Docker, `.env`, Qwen, Nginx и API вынесены в [DEPLOY.md](DEPLOY.md).
+Подробные инструкции по локальному запуску, Docker, `.env`, Qwen, Nginx и API вынесены в [BUILD.md](BUILD.md) и [DEPLOY.md](DEPLOY.md).
 
 ## Результат обработки
 
@@ -52,10 +52,19 @@ docker compose up --build
 - [backend/app.py](backend/app.py) — FastAPI API
 - [backend/core.py](backend/core.py) — ядро анализа и вычеркивания
 - [docker-compose.yml](docker-compose.yml) — запуск сервисов в контейнерах
-- [DEPLOY.md](DEPLOY.md) — технический запуск и деплой
+- [BUILD.md](BUILD.md) — инструкция по сборке и запуску
+- [ARCHITECTURE.md](ARCHITECTURE.md) — описание архитектуры сервиса
+- [USER_GUIDE.md](USER_GUIDE.md) — пользовательская документация
+- [DEPLOY.md](DEPLOY.md) — расширенные технические детали деплоя
 - [docs/TEST_PROTOCOL.md](docs/TEST_PROTOCOL.md) — краткий протокол тестирования
 
 ## Конфигурация
 
 - шаблон переменных окружения: [.env.example](.env.example)
 - локальные секреты, сертификаты, тестовые материалы и служебные файлы исключены через [.gitignore](.gitignore)
+
+## Хранение данных
+
+- внешняя база данных в текущей версии не используется
+- миграции отсутствуют
+- временное состояние анализа хранится в памяти backend-сервиса
