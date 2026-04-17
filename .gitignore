@@ -199,5 +199,6 @@ Thumbs.db
 .DS_Store
 test/
 HISTORY/
+ПРОДОЛЖАЕМ ЗАДАЧУ/
 nginx/certs/*.crt
 nginx/certs/*.key

@@ -35,18 +35,15 @@ except Exception:
 
 SUPPORTED_EXTENSIONS = {"pdf", "docx", "txt", "md", "png", "jpg", "jpeg", "zip"}
 
-RE_EMAIL = re.compile(
-    r"\b[A-Za-z0-9._%+\-]+\s*@\s*[A-Za-z0-9.\-]+(?:\s*\.\s*|\s+)[A-Za-z]{2,}\b",
-    re.IGNORECASE,
-)
+RE_EMAIL = re.compile(r"\b[A-Za-z0-9._%+\-]+[ \t]*@[ \t]*[A-Za-z0-9.\-]+\.[A-Za-z]{2,24}\b", re.IGNORECASE)
 RE_PHONE = re.compile(
-    r"(?<!\d)(?:"
+    r"(?ix)(?<!\w)(?:"
     r"(?:\+7|8)(?:[\s\-\(\)]*[0-9OoОо]){10,11}"
     r"|"
-    r"\(?\d{3}\)?[\s\-]+\d{3}[\s\-]*\d{2}[\s\-]*\d{2}"
+    r"(?:\+\d{1,3}|00\d{2,3})(?:[\s\-\(\)]*\d){6,14}"
     r"|"
-    r"\+7[\s\-]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}"
-    r")(?!\d)"
+    r"\(?\d{2,4}\)?(?:[ \t\-]+\d{2,4}){2,5}"
+    r")(?!\w)"
 )
 RE_PHONE_AREA_CONTEXT = re.compile(
     r"\(\s*[0-9OoОо]{3}\s*\)"
@@ -56,14 +53,49 @@ RE_PHONE_AREA_CONTEXT = re.compile(
 RE_INN = re.compile(r"(?<!\d)\d{10}(?!\d)|(?<!\d)\d{12}(?!\d)")
 RE_PASSPORT = re.compile(r"(?i)\b(?:паспорт|passport)\b[^0-9]{0,24}(\d{2})\s*(\d{2})\s*(\d{6})")
 RE_MONEY = re.compile(
-    r"(?<!\w)(\d[\d\s]{0,15})(?:[.,]\d{1,2})?\s*(?:руб\.?|₽|RUB|usd|USD|eur|EUR)(?=\s|$|[.,;:)\]])",
+    r"(?ix)(?<!\w)(?:"
+    r"(?:USD|EUR|GBP|CHF|RUB|CAD|AUD|\$|€|£|₽)[ \t]*\d[\d \t.,]{0,18}"
+    r"|"
+    r"\d[\d \t.,]{0,18}[ \t]*(?:руб\.?|₽|RUB|USD|EUR|GBP|CHF|CAD|AUD|\$|€|£)"
+    r")(?=\s|$|[.,;:)\]])",
     re.IGNORECASE,
 )
-RE_ACCOUNT = re.compile(r"(?<!\d)(?:\d[\s\-]?){20}(?!\d)")
+RE_ACCOUNT = re.compile(r"(?ix)(?<![A-Z0-9])(?:[A-Z]{2}\d{2}(?:[ \t\-]?[A-Z0-9]){11,30}|(?:\d[ \t\-]?){20})(?![A-Z0-9])")
 RE_ORG = re.compile(
-    r"\b(?:ООО|ОАО|ПАО|АО|ЗАО|ИП)\s+[\"«]?[A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9 \t\-]{1,80}?[\"»]?(?=$|[.,;:\n)])",
+    r"(?ix)(?:"
+    r"\b(?:ООО|ОАО|ПАО|АО|ЗАО|ИП)\s+[\"«]?[A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9 \t\-]{1,80}?[\"»]?(?=$|[.,;:\n)])"
+    r"|"
+    r"\b[A-Z][A-Za-z0-9&'.,-]*(?:[ \t]+[A-Z][A-Za-z0-9&'.,-]*){0,5}[ \t]+"
+    r"(?:Ltd|Limited|LLC|Inc\.?|Corporation|Corp\.?|GmbH|AG|BV|PLC|S\.A\.|S\.r\.l\.|Oy|ApS|AB|AS)\b"
+    r")",
     re.IGNORECASE,
 )
+
+CONTEXTUAL_REGEX_DETECTORS = {
+    "PER": [
+        re.compile(
+            r"(?im)\b(?:prepared by|contact person|contact|employee|representative|approved by|reviewed by|signed by|name)[ \t]*:[ \t]*"
+            r"(?P<value>[A-Z][a-z]+(?:[-'][A-Z][a-z]+)?(?:[ \t]+[A-Z][a-z]+(?:[-'][A-Z][a-z]+)?){1,3})\b"
+        ),
+    ],
+    "PASSPORT": [
+        re.compile(
+            r"(?i)\b(?:passport(?:[ \t]*(?:no|number|#)\.?)?)[ \t]*[:#-]?[ \t]*(?P<value>[A-Z0-9][A-Z0-9\- ]{5,14})\b"
+        ),
+    ],
+    "INN": [
+        re.compile(
+            r"(?i)\b(?:tax[ \t]*id|vat[ \t]*id|tin|taxpayer[ \t]*id|inn)\b[ \t]*[:#-]?[ \t]*"
+            r"(?P<value>(?=[A-Z0-9\-]*\d)[A-Z]{0,2}[A-Z0-9\-]{8,16})\b"
+        ),
+    ],
+    "ACCOUNT": [
+        re.compile(
+            r"(?i)\b(?:iban|bank[ \t]*account|account|acct)\b[ \t]*[:#-]?[ \t]*"
+            r"(?P<value>[A-Z]{2}[A-Z0-9\- ]{11,34}|(?:\d[ \t\-]?){20})\b"
+        ),
+    ],
+}
 
 REGEX_DETECTORS = {
     "ORG": RE_ORG,
@@ -152,21 +184,35 @@ def _replace_ocr_space_with_dot(match: re.Match[str]) -> str:
     return f"{left}.{spaces[1:]}{right}" if spaces else f"{left}.{right}"
 
 
+def _replace_ocr_spaces_with_dots(value: str) -> str:
+    return re.sub(r"\s+", lambda match: "." + match.group(0)[1:], value)
+
+
 def _normalize_ocr_text_for_regex(text: str) -> str:
     if not text:
         return text
 
     normalized = text
+    normalized = normalized.replace("Î", "0").replace("І", "0")
 
     # Typical OCR confusion in numeric fragments: O/o/О/о -> 0
     normalized = re.sub(r"(?<=\d)[OoОо](?=\d)", "0", normalized)
     normalized = re.sub(r"(?<=\d)[OoОо](?=[\s\-\)])", "0", normalized)
     normalized = re.sub(r"(?<=[\s\-\(])[OoОо](?=\d)", "0", normalized)
+    normalized = re.sub(r"(?<=[\dOoОо])[OoОо](?=[\dOoОо\s\-\)\n]|$)", "0", normalized)
+    normalized = re.sub(r"(?<=\d)[ÎІ](?=\d)", "0", normalized)
+    normalized = re.sub(r"(?<=\d)[ÎІ](?=[\s\-\)])", "0", normalized)
+    normalized = re.sub(r"(?<=[\s\-\(])[ÎІ](?=\d)", "0", normalized)
 
     # Email local-part: "smirnov a@" -> "smirnov.a@"
     normalized = re.sub(
         r"([A-Za-z0-9._%+\-])(\s+)([A-Za-z0-9._%+\-])(?=\s*@)",
         _replace_ocr_space_with_dot,
+        normalized,
+    )
+    normalized = re.sub(
+        r"\b([A-Za-z0-9._%+\-]+(?:\s+[A-Za-z0-9._%+\-]+)+)(?=\s*@)",
+        lambda match: _replace_ocr_spaces_with_dots(match.group(1)),
         normalized,
     )
 
@@ -177,6 +223,17 @@ def _normalize_ocr_text_for_regex(text: str) -> str:
         normalized,
     )
 
+    # OCR can confuse IBAN check digits and zeros inside the account body.
+    normalized = re.sub(
+        r"\b([A-Z]{2})([0-9OoОоZz]{2})([A-Z0-9OoОо]{10,30})\b",
+        lambda match: (
+            match.group(1)
+            + match.group(2).translate(str.maketrans({"O": "0", "o": "0", "О": "0", "о": "0", "Z": "2", "z": "2"}))
+            + match.group(3).translate(str.maketrans({"O": "0", "o": "0", "О": "0", "о": "0"}))
+        ),
+        normalized,
+    )
+
     return normalized
 
 
@@ -184,6 +241,34 @@ def parse_custom_words(raw: str) -> List[str]:
     if not raw:
         return []
     return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+def _append_contextual_spans(
+    spans: List[Span],
+    text: str,
+    categories: Set[str],
+    page: Optional[int],
+    method: str,
+) -> None:
+    for label, patterns in CONTEXTUAL_REGEX_DETECTORS.items():
+        if label not in categories:
+            continue
+        for pattern in patterns:
+            for match in pattern.finditer(text):
+                group_name = "value" if "value" in pattern.groupindex else None
+                start, end = match.span(group_name) if group_name else match.span()
+                if start < 0 or end <= start:
+                    continue
+                spans.append(
+                    Span(
+                        start=start,
+                        end=end,
+                        label=label,
+                        text=text[start:end],
+                        page=page,
+                        method=method,
+                    )
+                )
 
 
 def expand_archives(files: Sequence[Tuple[str, bytes]]) -> List[Tuple[str, bytes]]:
@@ -378,8 +463,10 @@ def find_spans(
                     text=text[match.start() : match.end()],
                     page=page,
                     method=method,
+                    )
                 )
-            )
+
+    _append_contextual_spans(spans, text, categories, page, method)
 
     if method == "OCR" and "PHONE" in categories:
         for match in RE_PHONE_AREA_CONTEXT.finditer(regex_text):
@@ -1231,7 +1318,7 @@ def _redact_pdf(
             if start < 0 or end <= start:
                 continue
 
-            hit_rects = _token_rects_for_hit(flat_tokens, start, end, x_scale=scale_x, y_scale=y_scale, pad=4)
+            hit_rects = _token_rects_for_hit(flat_tokens, start, end, x_scale=scale_x, y_scale=scale_y, pad=4)
             if not hit_rects:
                 continue
 
